@@ -26,7 +26,8 @@ typedef int tid_t;
 
 /* A kernel thread or user process.
 
-   Each thread structure is stored in its own 4 kB page.  The
+   Each thread // while (timer_elapsed (start) < ticks)
+  //   thread_yield ();structure is stored in its own 4 kB page.  The
    thread structure itself sits at the very bottom of the page
    (at offset 0).  The rest of the page is reserved for the
    thread's kernel stack, which grows downward from the top of
@@ -97,7 +98,11 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
-    int64_t when_to_wake_up;
+
+    // New Property to store when to wake up the thread
+    int64_t waking_up_time;
+
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
