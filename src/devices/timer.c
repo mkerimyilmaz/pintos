@@ -23,6 +23,7 @@ static int64_t ticks;
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
+static struct list waiting_timer_list;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -37,6 +38,8 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  list_init(&waiting_timer_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -92,8 +95,10 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  //while (timer_elapsed (start) < ticks) 
+  //  thread_yield ();
+
+  timer_wait(start + ticks);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -120,6 +125,59 @@ timer_nsleep (int64_t ns)
   real_time_sleep (ns, 1000 * 1000 * 1000);
 }
 
+
+// By Shikhar
+
+static bool tick_less (const struct list_elem *aa, const struct list_elem *bb, void *aux) {
+  ASSERT (aa != NULL);
+  ASSERT (bb != NULL);
+  struct thread *a = list_entry (aa, struct thread, elem);
+  struct thread *b = list_entry (bb, struct thread, elem);
+  return a->when_to_wake_up < b->when_to_wake_up;
+}
+
+// Timer Wait By Shikhar
+void timer_wait (int64_t ticks)
+{
+  // Sleep for 0 ticks
+  if (ticks <= 0)
+    return;
+
+  struct thread *cur = thread_current ();
+  enum intr_level old_level = intr_disable ();
+  cur->when_to_wake_up = ticks;
+
+  list_insert_ordered(&waiting_timer_list, &cur->elem, tick_less, NULL);
+  thread_block();
+  intr_set_level (old_level);
+}
+
+// Timer Wakeup function by Shikhar
+void timer_wakeup()
+{
+  struct thread *t;
+  struct list_elem *cur = list_begin (&waiting_timer_list), *next;
+
+  if (list_empty (&waiting_timer_list))
+    return;
+
+  while (cur != list_end (&waiting_timer_list))
+    {
+      next = list_next (cur);
+      t = list_entry (cur, struct thread, elem);
+      if (t->when_to_wake_up > timer_ticks())
+        break;
+
+      // Remove the thread from timer_wait_list
+      // then unblock it
+      enum intr_level old_level;
+      old_level = intr_disable ();
+      list_remove (cur);
+      thread_unblock (t);
+      intr_set_level (old_level);
+      cur = next;
+    }
+}
 /* Busy-waits for approximately MS milliseconds.  Interrupts need
    not be turned on.
 
